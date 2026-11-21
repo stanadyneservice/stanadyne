@@ -781,7 +781,7 @@ section h2.uppercase{display:inline-block;padding:.35rem .9rem;border-radius:999
         const SITE_CONFIG = {
             // Cloudflare Turnstile: вставте СПРАВЖНІЙ Site Key (https://dash.cloudflare.com -> Turnstile).
             // Поки порожньо — капча не показується і помилки "Неправильний ключ сайту" немає.
-            turnstileSiteKey: '',
+            turnstileSiteKey: '0x4AAAAAAGL4IRdrmaAqGOQq',
             // Адреса вашого сервера, який приймає замовлення (POST JSON). Якщо порожньо або сервер недоступний —
             // клієнт отримає кнопки "Надіслати у WhatsApp / Email" з уже заповненим текстом замовлення.
             orderEndpoint: '/api/order',
@@ -1320,7 +1320,7 @@ section h2.uppercase{display:inline-block;padding:.35rem .9rem;border-radius:999
             $id('orderModal').scrollTop = 0;
             document.body.style.overflow = 'hidden';
             document.documentElement.style.overflow = 'hidden';
-            mountTurnstile();
+            $id('cfWidget').classList.add('hidden');   // капча з'являється лише якщо сервер її вимагає
             // на телефоні не фокусуємо автоматично (щоб не вискакувала клавіатура і не закривала форму)
             if (matchMedia('(hover: hover) and (pointer: fine)').matches) setTimeout(() => $id('custName').focus(), 50);
         }
@@ -1501,12 +1501,28 @@ section h2.uppercase{display:inline-block;padding:.35rem .9rem;border-radius:999
                 let r; try {
                     r = await fetch(SITE_CONFIG.orderEndpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(orderData), credentials: 'same-origin', signal: ctrl.signal });
                 } finally { clearTimeout(to); }
+                if (r.status === 403 || r.status === 429) {
+                    let j = {}; try { j = await r.json(); } catch (_) {}
+                    const hasKey = !!(SITE_CONFIG.turnstileSiteKey || '').trim();
+                    if (j.error === 'captcha-required' && hasKey) {
+                        mountTurnstile();
+                        return setStatus('Схоже на повторні заявки. Підтвердіть, що ви не робот (капча вище), і натисніть кнопку ще раз.', false);
+                    }
+                    if (j.error === 'captcha-invalid') {
+                        if (window.turnstile && tsWidgetId !== null) turnstile.reset(tsWidgetId);
+                        return setStatus('Капчу не пройдено. Спробуйте ще раз.', false);
+                    }
+                    if (j.error === 'captcha-required' || j.error === 'rate-limited') {
+                        return setStatus('Забагато однакових заявок. Зачекайте кілька хвилин або зателефонуйте ' + SITE_CONFIG.phoneText + '.', false);
+                    }
+                }
                 if (!r.ok) throw new Error(r.status);
                 lastSubmit = Date.now();
                 setStatus('✅ Дякуємо! Заявку прийнято, менеджер зв\'яжеться з вами.', true);
                 $id('orderForm').reset();
                 resetWarehouse();
                 if (window.turnstile && tsWidgetId !== null) turnstile.reset(tsWidgetId);
+                $id('cfWidget').classList.add('hidden');
                 setTimeout(closeModal, 2500);
             } catch (err) {
                 showFallback(orderData);
